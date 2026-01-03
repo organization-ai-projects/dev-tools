@@ -1,0 +1,15 @@
+# Ignorer les fichiers de build
+/target/
+
+# Ignorer les fichiers temporaires
+*.rs.bk
+*.swp
+*.swo
+
+# Ignorer les fichiers de logs
+*.log
+
+# Ignorer les fichiers spécifiques à l'IDE
+.idea/
+.vscode/
+*.iml
