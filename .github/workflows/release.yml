@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish-crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Publish dev-forge-core
+        run: |
+          cargo login ${{ secrets.CARGO_TOKEN }}
+          cargo publish -p dev-forge-core --no-verify
+
+      - name: Wait for crates.io indexing
+        run: sleep 30
+
+      - name: Publish dev-forge CLI
+        run: cargo publish -p dev-forge --no-verify
+
+  build-binaries:
+    name: Build Binaries
+    needs: publish-crates
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: dev-forge-linux-x64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact: dev-forge-linux-musl-x64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: dev-forge-macos-x64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: dev-forge-macos-arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: dev-forge-windows-x64.exe
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get install -y musl-tools
+
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.target }} -p dev-forge
+
+      - name: Rename binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cp target/${{ matrix.target }}/release/dev-forge ${{ matrix.artifact }}
+
+      - name: Rename binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cp target/${{ matrix.target }}/release/dev-forge.exe ${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          body: |
+            ## 🚀 Installation
+
+            ### Via cargo (recommended)
+            ```bash
+            cargo install dev-forge
+            ```
+
+            ### Via binary
+            Download the binary for your platform below and add it to your PATH.
+
+            ### Verification
+            ```bash
+            dev-forge --version
+            ```
+
+            ## 📝 What's Changed
+            See the auto-generated release notes below.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
